@@ -491,7 +491,7 @@ class INDEX_ALLOCATION(FixupBlock):
         return count
 
     def blocks(self):
-        for i in xrange(INDEX_ALLOCATION.guess_num_blocks(self._buf, self.offset())):
+        for i in range(INDEX_ALLOCATION.guess_num_blocks(self._buf, self.offset())):
             # TODO: don't hardcode things
             yield INDEX_BLOCK(self._buf, self._offset + 0x1000 * i)
 
@@ -601,7 +601,24 @@ class StandardInformation(Block):
             raise StandardInformationFieldDoesNotExist("USN")
 
 
-class FilenameAttribute(Block, Nestable):
+class VolumeInformation(Block, Nestable):
+    def __init__(self, buf, offset, parent):
+        super(VolumeInformation, self).__init__(buf, offset)
+        self.declare_field("qword", "maybeAlwaysZero0", 0x0)
+        self.declare_field("byte", "majorVersionNumber")
+        self.declare_field("byte", "minorVersionNumber")
+        self.declare_field("word", "flags")
+        self.declare_field("dword", "maybeAlwaysZero10")
+
+    @staticmethod
+    def structure_size(buf, offset, parent):
+        return 16
+
+    def __len__(self):
+        return 16
+
+
+class FilenameAttribute(Block):
     def __init__(self, buf, offset, parent):
         super(FilenameAttribute, self).__init__(buf, offset)
         self.declare_field("qword", "mft_parent_reference", 0x0)
@@ -688,7 +705,7 @@ class Runentry(Block, Nestable):
         count = 0
         ret = 0
         for b in binary:
-            ret += ord(b) << (8 * count)
+            ret += b << (8 * count)
             count += 1
         return ret
 
@@ -697,11 +714,11 @@ class Runentry(Block, Nestable):
         ret = 0
         working = []
 
-        is_negative = (ord(binary[-1]) & (1 << 7) != 0)
+        is_negative = (binary[-1] & (1 << 7) != 0)
         if is_negative:
-            working = [ord(b) ^ 0xFF for b in binary]
+            working = [b ^ 0xFF for b in binary]
         else:
-            working = [ord(b) for b in binary]
+            working = [b for b in binary]
         for b in working:
             ret += b << (8 * count)
             count += 1
@@ -768,6 +785,7 @@ class ATTR_TYPE:
     DATA = 0x80
     INDEX_ROOT = 0x90
     INDEX_ALLOCATION = 0xA0
+    VOLUME_INFORMATION = 0x70 # https://github.com/sbond75/ntfsAnalysisLib/blob/master/main.cpp
 
 
 class Attribute(Block, Nestable):
@@ -1124,7 +1142,9 @@ class MFTEnumerator(object):
             return self._record_cache.get(record_num)
 
         record_buf = self.get_record_buf(record_num)
-        if BinaryParser.read_dword(record_buf, 0x0) != 0x454C4946:
+        dword=BinaryParser.read_dword(record_buf, 0x0)
+        if dword != 0x454C4946:
+            print("Invalid dword:",dword)
             raise InvalidRecordException("record_num: %d" % record_num)
 
         record = MFTRecord(record_buf, 0, False, inode=record_num)

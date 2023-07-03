@@ -1,5 +1,7 @@
 #!/usr/bin/python
 
+from __future__ import print_function
+
 import sys
 from struct import unpack_from as old_unpack_from
 from struct import unpack_from as old_unpack
@@ -7,7 +9,7 @@ from struct import calcsize
 
 from collections import OrderedDict
 # From: http://code.activestate.com/recipes/577197-sortedcollection/
-from SortedCollection import SortedCollection
+from .SortedCollection import SortedCollection
 
 
 MEGABYTE = 1024 * 1024
@@ -303,8 +305,26 @@ class FileMap(object):
         self._block_size = block_size
         self._size = size
         self._block_cache = RangeCache(cache_size)
+        self.amountRead = 0
 
+    def logRead(self, amount, offset, buf):
+        pass
+        print("read",amount,"; total amountRead:",self.amountRead / MEGABYTE, "megabyte(s) ; read at cluster?",offset/4096)
+        #from .BinaryParser import hex_dump
+        #print(hex_dump(buf[:1024]))
+
+        import pdb
+        pdb.set_trace()
+        
     def __getitem__(self, index):
+        if isinstance(index, slice):
+            return self.__getslice__(index.start if index.start is not None else 0, index.stop if index.stop is not None else sys.maxsize)
+            # # https://poe.com/Sage
+            # start = index.start
+            # stop = index.stop
+            # step = index.step
+            # return b''.join([self[ii] for ii in range(*index.indices(len(self)))])
+        
         if index < 0:
             index = self._size + index
         block_index = index % self._block_size
@@ -314,12 +334,14 @@ class FileMap(object):
             hit = self._block_cache.get(index)
             buf = hit[2]
             self._block_cache.touch(hit)
-            return buf[block_index]
+            return buf[block_index:block_index+1]
         except ValueError:
             self._f.seek(block_start)
             buf = self._f.read(self._block_size)
+            self.amountRead+=self._block_size
+            self.logRead(self._block_size, self._f.tell(), buf)
             self._block_cache.push((block_start, self._block_size, buf))
-            return buf[block_index]
+            return buf[block_index:block_index+1] # return bytes object of length 1
 
     def _get_containing_block(self, index):
         """
@@ -337,12 +359,23 @@ class FileMap(object):
         except ValueError:
             self._f.seek(block_start)
             buf = self._f.read(self._block_size)
+            self.amountRead+=self._block_size
+            self.logRead(self._block_size, self._f.tell(), buf)
             self._block_cache.push((block_start, self._block_size, buf))
             return buf
 
     def __getslice__(self, start, end):
-        if end == sys.maxint:
-            end = self._size
+        try:
+            if end == sys.maxint: # python 2
+                end = self._size
+        except AttributeError:
+            if end == sys.maxsize: # python 3
+                end = self._size
+
+        if start < 0:
+            start = self._size + start
+        if end < 0:
+            end = self._size + end
 
         start_block_index = start % self._block_size
         start_block_start = start - start_block_index
@@ -356,7 +389,7 @@ class FileMap(object):
             return buf[start_block_index:end_block_index]
         else:
             # hard case, slice goes over one or more block boundaries
-            ret = ""
+            ret = b""
 
             # phase 1, start to block boundary
             buf = self._get_containing_block(start_block_start)
@@ -383,31 +416,35 @@ class FileMap(object):
 
     @staticmethod
     def test():
-        from cStringIO import StringIO
-        f = StringIO("0123abcd4567efgh")
+        try:
+            from cStringIO import StringIO
+            f = StringIO("0123abcd4567efgh")
+        except:
+            from io import BytesIO
+            f = BytesIO(b"0123abcd4567efgh")
         buf = FileMap(f, block_size=4, cache_size=2)
 
         assert len(buf) == 16
 
-        assert buf[0] == "0"
-        assert buf[1] == "1"
-        assert buf[0:2] == "01"
+        assert buf[0] == b"0"
+        assert buf[1] == b"1"
+        assert buf[0:2] == b"01"
 
-        assert buf[4] == "a"
-        assert buf[5] == "b"
-        assert buf[4:6] == "ab"
+        assert buf[4] == b"a"
+        assert buf[5] == b"b"
+        assert buf[4:6] == b"ab"
 
-        assert buf[2:6] == "23ab"
-        assert buf[0:8] == "0123abcd"
+        assert buf[2:6] == b"23ab"
+        assert buf[0:8] == b"0123abcd"
 
-        assert buf[0:12] == "0123abcd4567"
-        assert buf[0:16] == "0123abcd4567efgh"
-        assert buf[:] == "0123abcd4567efgh"
+        assert buf[0:12] == b"0123abcd4567"
+        assert buf[0:16] == b"0123abcd4567efgh"
+        assert buf[:] == b"0123abcd4567efgh"
 
-        assert buf[-1] == "h"
-        assert buf[-2:] == "gh"
-        assert buf[-4:] == "efgh"
-        assert buf[-8:] == "4567efgh"
+        assert buf[-1] == b"h"
+        assert buf[-2:] == b"gh"
+        assert buf[-4:] == b"efgh"
+        assert buf[-8:] == b"4567efgh"
 
         return True
 
@@ -443,25 +480,30 @@ def unpack(fmt, string):
 
 
 def struct_test():
-    from cStringIO import StringIO
-    f = StringIO("\x04\x03\x02\x01")
+    try:
+        from cStringIO import StringIO
+        f = StringIO("\x04\x03\x02\x01")
+    except:
+        from io import BytesIO
+        f = BytesIO(b"\x04\x03\x02\x01")
     buf = FileMap(f)
     assert unpack_from("<B", buf, 0x0)[0] == 0x04
     assert unpack_from("<H", buf, 0x0)[0] == 0x0304
     assert unpack_from("<I", buf, 0x0)[0] == 0x01020304
+    return True
 
 
 def test():
     if LRUQueue.test():
-        print "LRUQueue passed tests."
+        print("LRUQueue passed tests.")
     if BoundedLRUQueue.test():
-        print "BoundedLRUQueue passed tests."
+        print("BoundedLRUQueue passed tests.")
     if RangeCache.test():
-        print "RangeCache passed tests."
+        print("RangeCache passed tests.")
     if FileMap.test():
-        print "FileMap passed tests."
+        print("FileMap passed tests.")
     if struct_test():
-        print "struct passed tests."
+        print("struct passed tests.")
 
 
 if __name__ == "__main__":

@@ -359,6 +359,9 @@ class ClusterAccessor(object):
         self._cluster_size = cluster_size
 
     def __getitem__(self, index):
+        if isinstance(index, slice):
+            return self.__getslice__(index.start if index.start is not None else 0, index.stop if index.stop is not None else sys.maxsize)
+        
         size = self._cluster_size
         start, end = index * size, (index + 1) * size
         g_logger.debug('Get clusters %s:%s', start, end)
@@ -414,6 +417,9 @@ class NonResidentAttributeData(object):
         self._len = None
 
     def __getitem__(self, index):
+        if isinstance(index, slice):
+            return self.__getslice__(index.start if index.start is not None else 0, index.stop if index.stop is not None else sys.maxsize)
+        
         # TODO: clarify variable names and their units
         # units: bytes
         current_run_start_offset = 0
@@ -461,7 +467,7 @@ class NonResidentAttributeData(object):
         g_logger.debug("NonResidentAttributeData: getslice: "
                        "start: %x end: %x", start, stop)
         _len = len(self)
-        if stop == sys.maxint:
+        if stop == sys.maxsize:
             stop = _len
 
         if stop < 0:
@@ -529,7 +535,7 @@ class NonResidentAttributeData(object):
 class NTFSFilesystem(object):
     def __init__(self, volume, cluster_size=None):
         oem_id = volume[3:7]
-        assert oem_id == 'NTFS', 'Wrong OEM signature'
+        assert oem_id == b'NTFS', f'Wrong OEM signature: {oem_id}'
 
         super(NTFSFilesystem, self).__init__()
         self._volume = volume
@@ -569,13 +575,13 @@ class NTFSFilesystem(object):
             self._mft_data = b[:]
         self._enumerator = MFTEnumerator(self._mft_data)
 
-        # test there's at least some user content (aside from root), or we'll
-        #   assume something's up
-        try:
-            _ = self.get_record(INODE_FIRST_USER)
-        except OverrunBufferException:
-            g_logger.error("overrun reading first user MFT record")
-            raise CorruptNTFSFilesystemError("failed to read first user record (MFT not large enough)")
+        # # test there's at least some user content (aside from root), or we'll
+        # #   assume something's up
+        # try:
+        #     _ = self.get_record(INODE_FIRST_USER)
+        # except OverrunBufferException:
+        #     g_logger.error("overrun reading first user MFT record")
+        #     raise CorruptNTFSFilesystemError("failed to read first user record (MFT not large enough)")
 
     def get_attribute_data(self, attribute):
         if attribute.non_resident() == 0:

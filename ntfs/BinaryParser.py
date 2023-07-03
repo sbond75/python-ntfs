@@ -22,8 +22,12 @@ import sys
 import types
 import struct
 import logging
-import cPickle
+try:
+    import cPickle
+except:
+    import _pickle as cPickle
 from datetime import datetime
+import hexdump
 
 g_logger = logging.getLogger("ntfs.BinaryParser")
 
@@ -40,7 +44,7 @@ def unpack_from(fmt, buf, off=0):
     Theres an extra allocation and copy, but there's no getting
       around that.
     """
-    if isinstance(buf, basestring):
+    if isinstance(buf, str):
         return struct.unpack_from(fmt, buf, off)
     elif not hasattr(buf, "__unpackable__"):
         return struct.unpack_from(fmt, buf, off)
@@ -85,51 +89,7 @@ class Mmap(object):
 
 
 def hex_dump(src, start_addr=0):
-    """
-    see:
-    http://code.activestate.com/recipes/142812-hex-dumper/
-    @param src A bytestring containing the data to dump.
-    @param start_addr An integer representing the start
-      address of the data in whatever context it comes from.
-    @return A string containing a classic hex dump with 16
-      bytes per line.  If start_addr is provided, then the
-      data is interpreted as starting at this offset, and
-      the offset column is updated accordingly.
-    """
-    FILTER = ''.join([(len(repr(chr(x))) == 3) and
-                        chr(x) or
-                        '.' for x in range(256)])
-    length = 16
-    result = []
-
-    remainder_start_addr = start_addr
-
-    if start_addr % length != 0:
-        base_addr = start_addr - (start_addr % length)
-        num_spaces = (start_addr % length)
-        num_chars = length - (start_addr % length)
-
-        spaces = " ".join(["  " for i in xrange(num_spaces)])
-        s = src[0:num_chars]
-        hexa = ' '.join(["%02X" % ord(x) for x in s])
-        printable = s.translate(FILTER)
-
-        result.append("%04X   %s %s   %s%s\n" %
-                      (base_addr, spaces, hexa,
-                      " " * (num_spaces + 1), printable))
-
-        src = src[num_chars:]
-        remainder_start_addr = base_addr + length
-
-    for i in xrange(0, len(src), length):
-        s = src[i:i + length]
-        hexa = ' '.join(["%02X" % ord(x) for x in s])
-        printable = s.translate(FILTER)
-        result.append("%04X   %-*s   %s\n" %
-                         (remainder_start_addr + i, length * 3,
-                          hexa, printable))
-
-    return ''.join(result)
+    hexdump.hexdump(src)
 
 
 class decoratorargs(object):
@@ -504,7 +464,7 @@ class Block(object):
                     temp = type_(self._buf, self.absolute_offset(offset), self)
 
                     self._implicit_offset = offset + len(temp)
-        elif isinstance(type_, basestring):
+        elif isinstance(type_, str):
             typename = type_
 
             if count == 0:
